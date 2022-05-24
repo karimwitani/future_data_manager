@@ -4,7 +4,7 @@ then
     echo "virtual env already exists"
 else
     echo "virtual env doesn't exist, creating it .."
-    python3 -m venv ../venv
+    python3 -m venv ./venv
 fi 
 
 #Activate venv
