@@ -3,6 +3,8 @@ import sqlite3
 #from yf_interface.base import yahoo_futures_interface
 from configparser import ConfigParser
 import datetime
+from pandas.tseries.offsets import BusinessDay
+from dateutil.relativedelta import relativedelta
 
 #SETUP CONFIG OBJECT
 config_object = ConfigParser()
@@ -38,6 +40,7 @@ class yahoo_futures_interface:
     def get_yahoo_data(self, start=None):
         self._oil_futures_ticker_generator()
         self._get_start_date()
+        self._get_settlement_date()
         yahoo_ticker_interface = yf.Ticker(self.ticker)
         self.price_data = yahoo_ticker_interface.history(
                 start=self.start_date, end=datetime.datetime.now())
@@ -47,10 +50,12 @@ class yahoo_futures_interface:
         except Exception as e:
             print(e)
         self.price_data['Ticker'] = self.ticker
+        self.price_data['Settlement Date'] = self.contract_expiration 
+        #print(self.price_data.head())
     
     def _get_start_date(self):
         self._create_connection()
-        self.cur.execute(f"SELECT MAX(DATE) FROM OIL_FUTURES_YAHOO WHERE TICKER = '{self.ticker+'i'}';")
+        self.cur.execute(f"SELECT MAX(DATE) FROM OIL_FUTURES_YAHOO WHERE TICKER = '{self.ticker}';")
         res = self.cur.fetchone()
         self.conn.close()
         print(res)
@@ -74,6 +79,18 @@ class yahoo_futures_interface:
         except Exception as e:
             print(e)
     
+    def _get_settlement_date(self):
+        year = int(self.year)+2000
+        month = int(self.month)
+
+        previous_month_25th_day = datetime.date(year,month,25) - relativedelta(months=1)
+        print(f'previous_month_25th_day; {previous_month_25th_day}')
+        if previous_month_25th_day.weekday() < 5:
+            contract_expiration = previous_month_25th_day-3*BusinessDay()
+        else:
+            contract_expiration = previous_month_25th_day-4*BusinessDay()
+        self.contract_expiration = contract_expiration.date()
+    
     
     def _create_execute_entry(self, row):
         """
@@ -83,8 +100,8 @@ class yahoo_futures_interface:
         :return: void
         """
         
-        sql = '''INSERT INTO OIL_FUTURES_YAHOO(TICKER, DATE, OPEN, HIGH, LOW, CLOSE, VOLUME)
-                VALUES(?,?,?,?,?,?,?)'''
+        sql = '''INSERT INTO OIL_FUTURES_YAHOO(DATE,TICKER,OPEN, HIGH, LOW, CLOSE, VOLUME,SETTLEMENT_DATE)
+                VALUES(?,?,?,?,?,?,?,?)'''
         try:
             self._create_connection()
             self.cur.execute(sql,row)
@@ -96,8 +113,8 @@ class yahoo_futures_interface:
     def create_entries_from_dataframe(self):
         #self._create_connection()
         for index,row in self.price_data.iterrows():
-            print((row[5],index.date(),row[0],row[1],row[2],row[3],row[4]))
-            row = (row[5],index.date(),row[0],row[1],row[2],row[3],row[4])
+            print(index.date(),row[5],row[0],row[1],row[2],row[3],row[4],row[6])
+            row = (index.date(),row[5],row[0],row[1],row[2],row[3],row[4],row[6])
             self._create_execute_entry(row)
         
 def get_next_12_contract_months(month_symbol_mapper):
