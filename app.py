@@ -1,10 +1,14 @@
 import yfinance as yf
 import sqlite3
-#from yf_interface.base import yahoo_futures_interface
 from configparser import ConfigParser
 import datetime
 from pandas.tseries.offsets import BusinessDay
 from dateutil.relativedelta import relativedelta
+import logging
+
+#SETUP LOGGING
+level = logging.INFO
+logging.basicConfig(filename='futures_interface.log', format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=level)
 
 #SETUP CONFIG OBJECT
 config_object = ConfigParser()
@@ -33,14 +37,17 @@ class yahoo_futures_interface:
         self.year = year
         self.month = month
 
+
     def _oil_futures_ticker_generator(self):
         self.ticker = f"CL{month_symbol_mapper[self.month]['code']}{self.year}.NYM"
-        print(self.ticker)
+        logging.debug(f"Generated ticker: {self.ticker}")
+
 
     def get_yahoo_data(self, start=None):
         self._oil_futures_ticker_generator()
         self._get_start_date()
         self._get_settlement_date()
+        logging.info(f"Getting yahoo data for {self.ticker} from start date {self.start_date}")
         yahoo_ticker_interface = yf.Ticker(self.ticker)
         self.price_data = yahoo_ticker_interface.history(
                 start=self.start_date, end=datetime.datetime.now())
@@ -48,22 +55,22 @@ class yahoo_futures_interface:
             self.price_data.drop(
             labels=['Dividends', 'Stock Splits'], axis=1, inplace=True)
         except Exception as e:
-            print(e)
+            logging.error(f"Facing error in getting data from yahoo: {e}")
         self.price_data['Ticker'] = self.ticker
         self.price_data['Settlement Date'] = self.contract_expiration 
-        #print(self.price_data.head())
+
     
     def _get_start_date(self):
         self._create_connection()
         self.cur.execute(f"SELECT MAX(DATE) FROM OIL_FUTURES_YAHOO WHERE TICKER = '{self.ticker}';")
         res = self.cur.fetchone()
         self.conn.close()
-        print(res)
+        logging.debug(f"Most recent reading for {self.ticker} is {res[0]}")
         if res[0] is not None :
             self.start_date = datetime.datetime.strptime(res[0], '%Y-%m-%d')
         else:
             self.start_date = datetime.datetime.now() - datetime.timedelta(45)
-        print(self.start_date)
+        logging.debug(f"Start date for fetching yahoo data for ticker {self.ticker} is {self.start_date}")
 
 
     def _create_connection(self, db_file=server_config['database']):
@@ -77,21 +84,23 @@ class yahoo_futures_interface:
             self.conn = sqlite3.connect(db_file)
             self.cur = self.conn.cursor()
         except Exception as e:
-            print(e)
-    
+            logging.error(f"Problem with connecting to database {db_file}, {e}")
+
+
     def _get_settlement_date(self):
         year = int(self.year)+2000
         month = int(self.month)
 
         previous_month_25th_day = datetime.date(year,month,25) - relativedelta(months=1)
-        print(f'previous_month_25th_day; {previous_month_25th_day}')
+        logging.debug(f'Previous_month_25th_day; {previous_month_25th_day}')
         if previous_month_25th_day.weekday() < 5:
             contract_expiration = previous_month_25th_day-3*BusinessDay()
         else:
             contract_expiration = previous_month_25th_day-4*BusinessDay()
         self.contract_expiration = contract_expiration.date()
+        logging.debug(f"Expiry date for the contract {self.ticker} is {self.contract_expiration}")
     
-    
+
     def _create_execute_entry(self, row):
         """
         Create a new futures price entry in the database's OIL_FUTURES_YAHOO table
@@ -108,12 +117,13 @@ class yahoo_futures_interface:
             self.conn.commit()
             self.conn.close()
         except Exception as e:
-            print(e)
+            logging.error(f"Error in inserting sql into the database: {e}")
     
+
     def create_entries_from_dataframe(self):
         #self._create_connection()
         for index,row in self.price_data.iterrows():
-            print(index.date(),row[5],row[0],row[1],row[2],row[3],row[4],row[6])
+            logging.debug(f"Data to insert into the database: {index.date(),row[5],row[0],row[1],row[2],row[3],row[4],row[6]}")
             row = (index.date(),row[5],row[0],row[1],row[2],row[3],row[4],row[6])
             self._create_execute_entry(row)
         
@@ -122,7 +132,7 @@ def get_next_12_contract_months(month_symbol_mapper):
     month = datetime.date.today().month +2
     next_12_contracts = []
     step=0
-    while step < 12:
+    while step <= 36:
         next_12_contracts.append({'year':str(year), 'month':str(month)})
         if month <12:
             month +=1
@@ -135,8 +145,9 @@ def get_next_12_contract_months(month_symbol_mapper):
 
 if __name__ == '__main__':
     next_12_contracts = get_next_12_contract_months(month_symbol_mapper)
+
     for contract in next_12_contracts:
-        print(f"year: {contract['year']}, month: {contract['month']}")
+        #print(f"year: {contract['year']}, month: {contract['month']}")
         interface = yahoo_futures_interface(year=contract['year'], month=contract['month'])
         interface.get_yahoo_data()
         interface.create_entries_from_dataframe()
