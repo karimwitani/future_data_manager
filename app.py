@@ -8,7 +8,8 @@ import logging
 
 #SETUP LOGGING
 level = logging.INFO
-logging.basicConfig(filename='futures_interface.log', format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=level)
+logging.basicConfig(
+    filename='futures_interface.log', format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=level)
 
 #SETUP CONFIG OBJECT
 config_object = ConfigParser()
