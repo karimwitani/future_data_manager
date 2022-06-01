@@ -1,0 +1,5 @@
+DEV :
+  db : /database/data/futures_dev.db
+
+PROD :
+  db : /database/data/futures.db
